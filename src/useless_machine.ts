@@ -4,6 +4,14 @@ export class EventHandler {
   // Register a listener
   onEvent(callback: (event: string, payload?: object) => void) {
     this.listeners.push(callback);
+    console.log(`registered onEvent, listenerCount: ${this.listeners.length}`);
+  }
+
+  // Remove a listener
+  offEvent(callback: (event: string, payload?: object) => void) {
+    console.log(this.listeners.length);
+    this.listeners = this.listeners.filter((listener) => listener !== callback);
+    console.log(this.listeners.length);
   }
 
   // Trigger the event
@@ -12,30 +20,17 @@ export class EventHandler {
   }
 }
 
-abstract class FSM {
-  readonly eventHandler: EventHandler;
-
-  constructor() {
-    this.eventHandler = new EventHandler();
-    this.eventHandler.onEvent(this.processEvent.bind(this));
-  }
-
-  async start() {
-    console.log("Starting Machine");
-
-    await new Promise<void>((resolve) => {
-      this.eventHandler.onEvent(() => {
-        //console.log("New event");
-        resolve();
-      });
-    });
-  }
-  abstract processEvent(event: string): void;
-  abstract processState(): void;
-
+enum Power {
+  OFF,
+  ON,
 }
 
-enum State {
+enum ToggleSwitchState {
+  OFF,
+  ON,
+}
+
+enum MicroSwitchState {
   OFF,
   ON,
 }
@@ -46,90 +41,156 @@ enum MotorDirection {
 }
 
 export enum Events {
-  OnPressed = "on",
-  OffPressed = "off",
+  ToggleOn = "toggleOn",
+  ToggleOff = "toggleOff",
   StateChanged = "changed"
 }
 
-export class UselessMachine extends FSM {
-  state: State;
-  motorDirection: MotorDirection;
+type UselessMachineState = {
+  power: Power,
+  toggleSwitch: ToggleSwitchState,
+  microSwitch: MicroSwitchState,
+  motorDirection: MotorDirection,
+  armPosition: number
+}
+
+export type StateChangedEventPayload = {
+  new: UselessMachineState
+  prev: UselessMachineState,
+}
+
+export class UselessMachine {
+  readonly eventHandler: EventHandler;
   armPosition: number;
+  toggleSwitch: ToggleSwitchState;
   timeoutId: number | undefined;
 
-  static readonly reverseMotorPos = 5;
+  static readonly REVERSE_MOTOR_POS = 5;
 
   constructor() {
-    super();
-    this.state = State.OFF;
-    this.motorDirection = MotorDirection.UP;
+    this.eventHandler = new EventHandler();
+    this.eventHandler.onEvent.bind(this);
+    console.log("constructed");
+
     this.armPosition = 0;
+    this.toggleSwitch = ToggleSwitchState.OFF;
+
+    this.eventHandler.onEvent((event: string, payload?: object) => {
+      if (event === Events.ToggleOn) {
+        let prevState = this.getState();
+        this.toggleSwitch = ToggleSwitchState.ON;
+        console.log("Tic!");
+        this.stateChanged(prevState);
+      }
+    });
+
+    this.eventHandler.onEvent((event: string, payload?: object) => {
+      if (event === Events.ToggleOff) {
+        let prevState = this.getState();
+        this.toggleSwitch = ToggleSwitchState.OFF;
+        console.log("Tec!");
+        this.stateChanged(prevState);
+      }
+    });
+
+    this.eventHandler.onEvent((event: string, payload?: object) => {
+      if (event === Events.StateChanged) {
+        let StateChangedEventPayload = payload as StateChangedEventPayload;
+        let prevState = StateChangedEventPayload.prev;
+        let newState = StateChangedEventPayload.new;
+        if (prevState.power != newState.power) {
+          if (newState.power === Power.ON) {
+            console.log("Brrrrr");
+            this.timeoutId = window.setTimeout(() => {
+              this.processMotor();
+            }, 1000);
+          } else {
+            console.log("Fuennn");
+            if (this.timeoutId != undefined) {
+              console.log("Clearing timeouts");
+              clearTimeout(this.timeoutId);
+            }
+          }
+        }
+      }
+    });
+
+    this.eventHandler.onEvent((event: string, payload?: object) => {
+      if (event === Events.StateChanged) {
+        let StateChangedEventPayload = payload as StateChangedEventPayload;
+        let prevState = StateChangedEventPayload.prev;
+        let newState = StateChangedEventPayload.new;
+        if (prevState.armPosition != newState.armPosition) {
+          if (newState.armPosition > prevState.armPosition && newState.armPosition == UselessMachine.REVERSE_MOTOR_POS) {
+            this.eventHandler.triggerEvent(Events.ToggleOff);
+          }
+        }
+      }
+    });
   }
 
-  getState(): object {
-    let state = {
-      state: this.state,
-      motorDirection: this.motorDirection,
-      armPosition: this.armPosition
+
+  async start() {
+    console.log("Starting Machine");
+
+    await new Promise<void>((resolve) => {
+      this.eventHandler.onEvent(() => {
+        resolve();
+      });
+    });
+  }
+
+  getState(): UselessMachineState {
+    return {
+      armPosition: this.armPosition,
+      toggleSwitch: this.toggleSwitch,
+      microSwitch: this.calcMicroSwitch(),
+      motorDirection: this.calcMotorDirection(),
+      power: this.calcPower(),
     };
-    //console.log("state: " + JSON.stringify(state));
-    return state
   }
 
-  tick() {
-    console.log("tick...");
+  calcMicroSwitch(): MicroSwitchState {
+    let r = this.armPosition == 0 ? MicroSwitchState.ON : MicroSwitchState.OFF;
 
-    this.timeoutId = window.setTimeout(() => {
-      this.processState();
-    }, 1000);
+    return r;
   }
 
-  on() {
-    console.log("Brrrrr");
-    this.state = State.ON;
-    this.stateChanged()
-    this.processState();
+  calcMotorDirection(): MotorDirection {
+    let r = this.toggleSwitch == ToggleSwitchState.ON ? MotorDirection.UP : MotorDirection.DOWN;
+
+    return r;
   }
 
-  off() {
-    console.log("Shutting down ..");
+  calcPower(): Power {
+    let r = this.calcMicroSwitch() == MicroSwitchState.OFF ||
+      this.toggleSwitch == ToggleSwitchState.ON ? Power.ON : Power.OFF;
 
-    if (this.timeoutId != undefined) {
-      console.log("Clearing timeouts");
-      clearTimeout(this.timeoutId);
+    return r;
+  }
+
+  stateChanged(prevState: UselessMachineState) {
+    if (prevState != this.getState()) {
+      let payload: StateChangedEventPayload = {
+        prev: prevState,
+        new: this.getState()
+      };
+      this.eventHandler.triggerEvent(Events.StateChanged, payload);
     }
-    this.state = State.OFF;
-    this.stateChanged()
   }
 
-  stateChanged() {
-    this.eventHandler.triggerEvent(Events.StateChanged, this.getState());
-  }
+  processMotor() {
+    console.log('processMotor');
+    if (this.getState().power == Power.ON) {
+      let prevState = this.getState();
+      console.log("rrrr");
 
-  processEvent(event: string) {
-    //console.log("UM processEvent: " + event);
-    if (event === Events.OnPressed) {
-      this.on();
-    }
-    //console.log("UselessMachine Processed event: " + event);
-  }
+      this.armPosition = this.armPosition + this.getState().motorDirection;
+      this.stateChanged(prevState);
 
-  processState() {
-    if (this.state === State.ON) {
-      this.armPosition = this.armPosition + this.motorDirection;
-      console.log("arm position:" + this.armPosition);
-
-      if (this.armPosition == UselessMachine.reverseMotorPos) {
-        this.motorDirection = MotorDirection.DOWN;
-        this.eventHandler.triggerEvent(Events.OffPressed)
-      }
-
-      this.tick();
-
-      if (this.armPosition == 0) {
-        this.off();
-      }
-      this.stateChanged()
+      this.timeoutId = window.setTimeout(() => {
+        this.processMotor();
+      }, 1000);
     }
   }
 }
