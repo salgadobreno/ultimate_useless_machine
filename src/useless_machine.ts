@@ -1,14 +1,14 @@
-class EventHandler {
-  private listeners: ((event: string) => void)[] = [];
+export class EventHandler {
+  private listeners: ((event: string, payload?: object) => void)[] = [];
 
   // Register a listener
-  onEvent(callback: (event: string) => void) {
+  onEvent(callback: (event: string, payload?: object) => void) {
     this.listeners.push(callback);
   }
 
   // Trigger the event
-  triggerEvent(event: string) {
-    this.listeners.forEach((callback) => callback(event));
+  triggerEvent(event: string, payload?: object) {
+    this.listeners.forEach((callback) => callback(event, payload));
   }
 }
 
@@ -45,13 +45,13 @@ enum MotorDirection {
   DOWN = -1
 }
 
-enum Events {
+export enum Events {
   OnPressed = "on",
   OffPressed = "off",
   StateChanged = "changed"
 }
 
-class UselessMachine extends FSM {
+export class UselessMachine extends FSM {
   state: State;
   motorDirection: MotorDirection;
   armPosition: number;
@@ -66,20 +66,20 @@ class UselessMachine extends FSM {
     this.armPosition = 0;
   }
 
-  getState(): void {
-    var state = {
+  getState(): object {
+    let state = {
       state: this.state,
       motorDirection: this.motorDirection,
       armPosition: this.armPosition
-    }
-
-    console.log(state);
+    };
+    //console.log("state: " + JSON.stringify(state));
+    return state
   }
 
   tick() {
     console.log("tick...");
 
-    this.timeoutId = setTimeout(() => {
+    this.timeoutId = window.setTimeout(() => {
       this.processState();
     }, 1000);
   }
@@ -103,9 +103,8 @@ class UselessMachine extends FSM {
   }
 
   stateChanged() {
-    this.eventHandler.triggerEvent(Events.StateChanged);
+    this.eventHandler.triggerEvent(Events.StateChanged, this.getState());
   }
-
 
   processEvent(event: string) {
     //console.log("UM processEvent: " + event);
@@ -122,6 +121,7 @@ class UselessMachine extends FSM {
 
       if (this.armPosition == UselessMachine.reverseMotorPos) {
         this.motorDirection = MotorDirection.DOWN;
+        this.eventHandler.triggerEvent(Events.OffPressed)
       }
 
       this.tick();
@@ -132,29 +132,4 @@ class UselessMachine extends FSM {
       this.stateChanged()
     }
   }
-
 }
-
-function main() {
-  let fsm = new UselessMachine();
-  let eventHandler = fsm.eventHandler;
-  eventHandler.onEvent((event) => {
-    if (event === Events.StateChanged) {
-      fsm.getState()
-    }
-  });
-  fsm.start();
-
-  //Simulate events after 3 seconds
-  setTimeout(() => {
-    eventHandler.triggerEvent("event1");
-  }, 3000);
-
-  setTimeout(() => {
-    eventHandler.triggerEvent("on");
-  }, 3000);
-
-  console.log("Initialized");
-}
-
-main();
