@@ -47,7 +47,6 @@ export enum Events {
 }
 
 type UselessMachineState = {
-  power: Power,
   toggleSwitch: ToggleSwitchState,
   microSwitch: MicroSwitchState,
   motorDirection: MotorDirection,
